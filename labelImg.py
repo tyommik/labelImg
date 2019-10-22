@@ -46,6 +46,7 @@ from libs.yolo_io import TXT_EXT
 from libs.ustr import ustr
 from libs.version import __version__
 from libs.hashableQListWidgetItem import HashableQListWidgetItem
+import config
 
 __appname__ = 'labelImg'
 
@@ -231,7 +232,7 @@ class MainWindow(QMainWindow, WindowMixin):
                         'space', 'verify', getStr('verifyImgDetail'))
 
         save = action(getStr('save'), self.saveFile,
-                      'Ctrl+S', 'save', getStr('saveDetail'), enabled=False)
+                      'Ctrl+S', 'save', getStr('saveDetail'), enabled=True)
 
         save_format = action('&PascalVOC', self.change_format,
                       'Ctrl+', 'format_voc', getStr('changeSaveFormat'), enabled=True)
@@ -255,9 +256,17 @@ class MainWindow(QMainWindow, WindowMixin):
                         'w', 'new', getStr('crtBoxDetail'), enabled=False)
         delete = action(getStr('delBox'), self.deleteSelectedShape,
                         'Delete', 'delete', getStr('delBoxDetail'), enabled=False)
-        copy = action(getStr('dupBox'), self.copySelectedShape,
-                      'Ctrl+D', 'copy', getStr('dupBoxDetail'),
+        # copy = action(getStr('dupBox'), self.dubSelectedShape,
+        #               'Ctrl+D', 'copy', getStr('dupBoxDetail'),
+        #               enabled=False)
+
+        copy = action(getStr('copyBox'), self.copySelectedShape,
+                      'Ctrl+C', 'copy', getStr('dupBoxDetail'),
                       enabled=False)
+
+        paste = action(getStr('pasteBox'), self.pasteShape,
+                      'Ctrl+V', 'paste', getStr('pasteBoxDetail'),
+                      enabled=True)
 
         advancedMode = action(getStr('advancedMode'), self.toggleAdvancedMode,
                               'Ctrl+Shift+A', 'expert', getStr('advancedModeDetail'),
@@ -345,9 +354,9 @@ class MainWindow(QMainWindow, WindowMixin):
                               fileMenuActions=(
                                   open, opendir, save, saveAs, close, resetAll, quit),
                               beginner=(), advanced=(),
-                              editMenu=(edit, copy, delete,
+                              editMenu=(edit, copy, delete, paste,
                                         None, color1, self.drawSquaresOption),
-                              beginnerContext=(create, edit, copy, delete),
+                              beginnerContext=(create, edit, copy, paste, delete),
                               advancedContext=(createMode, editMode, edit, copy,
                                                delete, shapeLineColor, shapeFillColor),
                               onLoadActive=(
@@ -401,7 +410,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.tools = self.toolbar('Tools')
         self.actions.beginner = (
-            open, opendir, changeSavedir, openNextImg, openPrevImg, verify, save, save_format, None, create, copy, delete, None,
+            open, opendir, changeSavedir, openNextImg, openPrevImg, verify, save, save_format, None, create, copy, paste, delete, None,
             zoomIn, zoom, zoomOut, fitWindow, fitWidth)
 
         self.actions.advanced = (
@@ -813,10 +822,20 @@ class MainWindow(QMainWindow, WindowMixin):
             self.errorMessage(u'Error saving label data', u'<b>%s</b>' % e)
             return False
 
-    def copySelectedShape(self):
+    def dubSelectedShape(self):
         self.addLabel(self.canvas.copySelectedShape())
         # fix copy and delete
         self.shapeSelectionChanged(True)
+
+    def copySelectedShape(self):
+        self.canvas.copySelectedShape()
+
+    def pasteShape(self):
+        print('Вставка бокса')
+        self.addLabel(self.canvas.pasteShape())
+        # fix copy and delete
+        self.shapeSelectionChanged(True)
+        self.setDirty()
 
     def labelSelectionChanged(self):
         item = self.currentItem()
@@ -1424,7 +1443,7 @@ class MainWindow(QMainWindow, WindowMixin):
             return
 
         self.set_format(FORMAT_YOLO)
-        tYoloParseReader = YoloReader(txtPath, self.image)
+        tYoloParseReader = YoloReader(txtPath, self.image, classListPath=defaultPrefdefClassFile())
         shapes = tYoloParseReader.getShapes()
         print (shapes)
         self.loadLabels(shapes)
@@ -1436,6 +1455,10 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def toogleDrawSquare(self):
         self.canvas.setDrawingShapeToSquare(self.drawSquaresOption.isChecked())
+
+
+def defaultPrefdefClassFile():
+    return config.PREDEF_YOLO_CLASSES
 
 def inverted(color):
     return QColor(*[255 - v for v in color.getRgb()])
@@ -1460,9 +1483,7 @@ def get_main_app(argv=[]):
     # Tzutalin 201705+: Accept extra agruments to change predefined class file
     # Usage : labelImg.py image predefClassFile saveDir
     win = MainWindow(argv[1] if len(argv) >= 2 else None,
-                     argv[2] if len(argv) >= 3 else os.path.join(
-                         os.path.dirname(sys.argv[0]),
-                         'data', 'predefined_classes.txt'),
+                     argv[2] if len(argv) >= 3 else config.PREDEF_YOLO_CLASSES,
                      argv[3] if len(argv) >= 4 else None)
     win.show()
     return app, win

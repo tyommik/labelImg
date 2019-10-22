@@ -15,7 +15,8 @@ except ImportError:
         sip.setapi('QVariant', 2)
     from PyQt4.QtCore import *
 
-DEFAULT_LOCALE = locale.getlocale()[0] if locale.getlocale() and len(locale.getlocale()) > 0 else os.getenv('LANG')
+# DEFAULT_LOCALE = locale.getlocale()[0] if locale.getlocale() and len(locale.getlocale()) > 0 else os.getenv('LANG')
+DEFAULT_LOCALE = 'en'
 
 class StringBundle:
 
@@ -50,6 +51,7 @@ class StringBundle:
         return resultPaths
 
     def __loadBundle(self, path):
+        path = r'resources/strings/strings.properties'
         PROP_SEPERATOR = '='
         f = QFile(path)
         if f.exists():

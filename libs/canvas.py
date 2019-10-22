@@ -62,6 +62,7 @@ class Canvas(QWidget):
         self.setFocusPolicy(Qt.WheelFocus)
         self.verified = False
         self.drawSquare = False
+        self.lastBBox = None
 
     def setDrawingColor(self, qColor):
         self.drawingLineColor = qColor
@@ -400,12 +401,20 @@ class Canvas(QWidget):
     def copySelectedShape(self):
         if self.selectedShape:
             shape = self.selectedShape.copy()
+            self.lastBBox = shape
+            return shape
+
+    def pasteShape(self):
+        if self.lastBBox:
+            shape = self.lastBBox.copy()
             self.deSelectShape()
             self.shapes.append(shape)
             shape.selected = True
             self.selectedShape = shape
             self.boundedShiftShape(shape)
+            self.update()
             return shape
+
 
     def boundedShiftShape(self, shape):
         # Try to move in one direction, and if it fails in another.

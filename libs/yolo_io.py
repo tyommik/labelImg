@@ -88,18 +88,21 @@ class YoloReader:
         # [labbel, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], color, color, difficult]
         self.shapes = []
         self.filepath = filepath
+        self.classListPath = os.path.abspath(classListPath)
 
-        if classListPath is None:
-            dir_path = os.path.dirname(os.path.realpath(self.filepath))
-            self.classListPath = os.path.join(dir_path, "classes.txt")
-        else:
-            self.classListPath = classListPath
+        dir_path = os.path.dirname(os.path.realpath(self.filepath))
+        extClassListPath = os.path.join(dir_path, "classes.txt")
 
-        # print (filepath, self.classListPath)
+        if os.path.exists(extClassListPath):
+            self.classListPath = extClassListPath
 
-        classesFile = open(self.classListPath, 'r')
-        self.classes = classesFile.read().strip('\n').split('\n')
+        print (filepath, self.classListPath)
 
+        with open (self.classListPath, 'r') as classesFile:
+            self.classes = [cl.strip('\n') for cl in classesFile.readlines() if cl.strip('\n')]
+
+        if not self.classes:
+            raise ValueError ('No classes in ', self.classListPath)
         # print (self.classes)
 
         imgSize = [image.height(), image.width(),
