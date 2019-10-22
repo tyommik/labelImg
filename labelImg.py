@@ -256,9 +256,6 @@ class MainWindow(QMainWindow, WindowMixin):
                         'w', 'new', getStr('crtBoxDetail'), enabled=False)
         delete = action(getStr('delBox'), self.deleteSelectedShape,
                         'Delete', 'delete', getStr('delBoxDetail'), enabled=False)
-        # copy = action(getStr('dupBox'), self.dubSelectedShape,
-        #               'Ctrl+D', 'copy', getStr('dupBoxDetail'),
-        #               enabled=False)
 
         copy = action(getStr('copyBox'), self.copySelectedShape,
                       'Ctrl+C', 'copy', getStr('dupBoxDetail'),
@@ -266,6 +263,10 @@ class MainWindow(QMainWindow, WindowMixin):
 
         paste = action(getStr('pasteBox'), self.pasteShape,
                       'Ctrl+V', 'paste', getStr('pasteBoxDetail'),
+                      enabled=False)
+
+        editor = action(getStr('openInEditor'), self.openInEditor,
+                      'Ctrl+G', 'Open In Editor', getStr('openInEditor'),
                       enabled=True)
 
         advancedMode = action(getStr('advancedMode'), self.toggleAdvancedMode,
@@ -354,7 +355,7 @@ class MainWindow(QMainWindow, WindowMixin):
                               fileMenuActions=(
                                   open, opendir, save, saveAs, close, resetAll, quit),
                               beginner=(), advanced=(),
-                              editMenu=(edit, copy, delete, paste,
+                              editMenu=(edit, copy, delete, paste, editor,
                                         None, color1, self.drawSquaresOption),
                               beginnerContext=(create, edit, copy, paste, delete),
                               advancedContext=(createMode, editMode, edit, copy,
@@ -414,7 +415,7 @@ class MainWindow(QMainWindow, WindowMixin):
             zoomIn, zoom, zoomOut, fitWindow, fitWidth)
 
         self.actions.advanced = (
-            open, opendir, changeSavedir, openNextImg, openPrevImg, save, save_format, None,
+            open, opendir, changeSavedir, openNextImg, openPrevImg, save, save_format, None, editor,
             createMode, editMode, None,
             hideAll, showAll)
 
@@ -831,11 +832,14 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.copySelectedShape()
 
     def pasteShape(self):
-        print('Вставка бокса')
         self.addLabel(self.canvas.pasteShape())
         # fix copy and delete
         self.shapeSelectionChanged(True)
         self.setDirty()
+
+
+    def openInEditor(self):
+        subprocess.Popen([config.IMAGE_EDITOR, self.filePath])
 
     def labelSelectionChanged(self):
         item = self.currentItem()
