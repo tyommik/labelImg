@@ -263,7 +263,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         paste = action(getStr('pasteBox'), self.pasteShape,
                       'Ctrl+V', 'paste', getStr('pasteBoxDetail'),
-                      enabled=False)
+                      enabled=True)
 
         editor = action(getStr('openInEditor'), self.openInEditor,
                       'Ctrl+G', 'Open In Editor', getStr('openInEditor'),
