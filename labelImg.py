@@ -1155,7 +1155,7 @@ class MainWindow(QMainWindow, WindowMixin):
                     relativePath = os.path.join(root, file)
                     path = ustr(os.path.abspath(relativePath))
                     images.append(path)
-        images.sort(key=lambda x: x.lower())
+        images.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))
         return images
 
     def changeSavedirDialog(self, _value=False):
