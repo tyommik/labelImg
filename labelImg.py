@@ -1260,6 +1260,7 @@ class MainWindow(QMainWindow, WindowMixin):
         currIndex = self.mImgList.index(self.filePath)
         if currIndex - 1 >= 0:
             filename = self.mImgList[currIndex - 1]
+            self.fileListWidget.scrollToItem(self.fileListWidget.item(currIndex - 1), hint=QAbstractItemView.EnsureVisible)
             if filename:
                 self.loadFile(filename)
 
@@ -1286,6 +1287,7 @@ class MainWindow(QMainWindow, WindowMixin):
             currIndex = self.mImgList.index(self.filePath)
             if currIndex + 1 < len(self.mImgList):
                 filename = self.mImgList[currIndex + 1]
+                self.fileListWidget.scrollToItem(self.fileListWidget.item(currIndex), hint=QAbstractItemView.EnsureVisible)
 
         if filename:
             self.loadFile(filename)
