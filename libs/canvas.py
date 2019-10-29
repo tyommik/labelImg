@@ -411,7 +411,6 @@ class Canvas(QWidget):
             self.shapes.append(shape)
             shape.selected = True
             self.selectedShape = shape
-            self.boundedShiftShape(shape)
             self.update()
             return shape
 
