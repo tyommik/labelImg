@@ -7,7 +7,7 @@ import platform
 import re
 import sys
 import subprocess
-
+import cv2
 from functools import partial
 from collections import defaultdict
 
@@ -42,11 +42,15 @@ from libs.toolBar import ToolBar
 from libs.pascal_voc_io import PascalVocReader
 from libs.pascal_voc_io import XML_EXT
 from libs.yolo_io import YoloReader
+from libs.yolo_cache_io import YoloCacheReader
 from libs.yolo_io import TXT_EXT
 from libs.ustr import ustr
 from libs.version import __version__
 from libs.hashableQListWidgetItem import HashableQListWidgetItem
 import config
+from libs.video_processing import VideoCapture
+from libs.simple_thread import SimpleThread
+
 
 __appname__ = 'labelImg'
 
@@ -95,10 +99,10 @@ class MainWindow(QMainWindow, WindowMixin):
         self.stringBundle = StringBundle.getBundle()
         getStr = lambda strId: self.stringBundle.getString(strId)
 
-        # Save as Pascal voc xml
+        # Save as Yolo xml
         self.defaultSaveDir = defaultSaveDir
-        self.usingPascalVocFormat = True
-        self.usingYoloFormat = False
+        self.usingPascalVocFormat = False
+        self.usingYoloFormat = True
 
         # For loading all image under a directory
         self.mImgList = []
@@ -108,6 +112,9 @@ class MainWindow(QMainWindow, WindowMixin):
 
         # Whether we need to save or not.
         self.dirty = False
+
+        # Shapes
+        self.shapes = None
 
         self._noSelectionSlot = False
         self._beginner = True
@@ -204,6 +211,45 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.dockFeatures = QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetFloatable
         self.dock.setFeatures(self.dock.features() ^ self.dockFeatures)
+
+        # Media
+        self.video_cap = None
+
+        # Media control slider
+        self.positionSlider = QSlider(Qt.Horizontal)
+        self.positionSlider.setRange(0, 0)
+
+        controlLayout = QHBoxLayout()
+        controlLayout.setContentsMargins(0, 0, 0, 0)
+        # controlLayout.addWidget(self.positionSlider)
+        container = QWidget()
+        container.setLayout(controlLayout)
+
+        # Timeline
+        self.timeline = QDockWidget()
+        self.timeline.setWidget(container)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.timeline)
+
+        self.lbl = QLineEdit(f'00:00:00|{0: >{8}}')
+        self.lbl.setReadOnly(True)
+        self.lbl.setFixedWidth(70)
+        self.lbl.setUpdatesEnabled(True)
+        self.lbl.setFixedWidth(150)
+        self.lbl.setStyleSheet(self.stylesheet())
+
+        self.elbl = QLineEdit(f'00:00:00|{0: >{8}}')
+        self.elbl.setReadOnly(True)
+        self.elbl.setFixedWidth(70)
+        self.elbl.setUpdatesEnabled(True)
+        self.elbl.setFixedWidth(150)
+        self.elbl.setStyleSheet(self.stylesheet())
+
+        controlLayout.addWidget(self.lbl)
+        controlLayout.addWidget(self.positionSlider)
+        controlLayout.addWidget(self.elbl)
+        self.positionSlider.sliderMoved.connect(self.loadFrame)
+        self.positionSlider.sliderMoved.connect(self.sliderPositionChanged)
+
 
         # Actions
         action = partial(newAction, self)
@@ -498,6 +544,52 @@ class MainWindow(QMainWindow, WindowMixin):
         if self.filePath and os.path.isdir(self.filePath):
             self.openDirDialog(dirpath=self.filePath)
 
+    def stylesheet(self):
+        return """
+    QSlider::handle:horizontal 
+    {
+        background: transparent;
+        width: 8px;
+    }
+    QSlider::groove:horizontal {
+        border: 1px solid #444444;
+        height: 8px;
+             background: qlineargradient(y1: 0, y2: 1,
+                                         stop: 0 #2e3436, stop: 1.0 #000000);
+    }
+    QSlider::sub-page:horizontal {
+        background: qlineargradient( y1: 0, y2: 1,
+            stop: 0 #729fcf, stop: 1 #2a82da);
+        border: 1px solid #777;
+        height: 8px;
+    }
+    QSlider::handle:horizontal:hover {
+        background: #2a82da;
+        height: 8px;
+        width: 8px;
+        border: 1px solid #2e3436;
+    }
+    QSlider::sub-page:horizontal:disabled {
+        background: #bbbbbb;
+        border-color: #999999;
+    }
+    QSlider::add-page:horizontal:disabled {
+        background: #2a82da;
+        border-color: #999999;
+    }
+    QSlider::handle:horizontal:disabled {
+        background: #2a82da;
+    }
+    QLineEdit
+    {
+        background: white;
+        color: #585858;
+        border: 0px solid #076100;
+        font-size: 12pt;
+        font-weight: bold;
+    }
+        """
+
     def keyReleaseEvent(self, event):
         if event.key() == Qt.Key_Control:
             self.canvas.setDrawingShapeToSquare(False)
@@ -693,11 +785,11 @@ class MainWindow(QMainWindow, WindowMixin):
 
     # Tzutalin 20160906 : Add file list and dock to move faster
     def fileitemDoubleClicked(self, item=None):
-        currIndex = self.mImgList.index(ustr(item.text()))
+        currIndex = self.mImgList.index(int(item.text()))
         if currIndex < len(self.mImgList):
             filename = self.mImgList[currIndex]
             if filename:
-                self.loadFile(filename)
+                self.loadFrame(filename)
 
     # Add chris
     def btnstate(self, item= None):
@@ -788,11 +880,42 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.loadShapes(s)
 
     def saveLabels(self, annotationFilePath):
-        annotationFilePath = ustr(annotationFilePath)
-        if self.labelFile is None:
-            self.labelFile = LabelFile()
-            self.labelFile.verified = self.canvas.verified
+        # annotationFilePath = ustr(annotationFilePath)
+        # if self.labelFile is None:
+        #     self.labelFile = LabelFile()
+        #     self.labelFile.verified = self.canvas.verified
+        #
+        # def format_shape(s):
+        #     return dict(label=s.label,
+        #                 line_color=s.line_color.getRgb(),
+        #                 fill_color=s.fill_color.getRgb(),
+        #                 points=[(p.x(), p.y()) for p in s.points],
+        #                # add chris
+        #                 difficult = s.difficult)
+        #
+        # shapes = [format_shape(shape) for shape in self.canvas.shapes]
+        # # Can add differrent annotation formats here
+        # try:
+        #     if self.usingPascalVocFormat is True:
+        #         if annotationFilePath[-4:].lower() != ".xml":
+        #             annotationFilePath += XML_EXT
+        #         self.labelFile.savePascalVocFormat(annotationFilePath, shapes, self.filePath, self.imageData,
+        #                                            self.lineColor.getRgb(), self.fillColor.getRgb())
+        #     elif self.usingYoloFormat is True:
+        #         if annotationFilePath[-4:].lower() != ".txt":
+        #             annotationFilePath += TXT_EXT
+        #         self.labelFile.saveYoloFormat(annotationFilePath, shapes, self.filePath, self.imageData, self.labelHist,
+        #                                            self.lineColor.getRgb(), self.fillColor.getRgb())
+        #     else:
+        #         self.labelFile.save(annotationFilePath, shapes, self.filePath, self.imageData,
+        #                             self.lineColor.getRgb(), self.fillColor.getRgb())
+        #     print('Image:{0} -> Annotation:{1}'.format(self.filePath, annotationFilePath))
+        #     return True
+        # except LabelFileError as e:
+        #     self.errorMessage(u'Error saving label data', u'<b>%s</b>' % e)
+        #     return False
 
+        annotationFilePath = ustr(annotationFilePath)
         def format_shape(s):
             return dict(label=s.label,
                         line_color=s.line_color.getRgb(),
@@ -800,28 +923,11 @@ class MainWindow(QMainWindow, WindowMixin):
                         points=[(p.x(), p.y()) for p in s.points],
                        # add chris
                         difficult = s.difficult)
-
         shapes = [format_shape(shape) for shape in self.canvas.shapes]
-        # Can add differrent annotation formats here
-        try:
-            if self.usingPascalVocFormat is True:
-                if annotationFilePath[-4:].lower() != ".xml":
-                    annotationFilePath += XML_EXT
-                self.labelFile.savePascalVocFormat(annotationFilePath, shapes, self.filePath, self.imageData,
-                                                   self.lineColor.getRgb(), self.fillColor.getRgb())
-            elif self.usingYoloFormat is True:
-                if annotationFilePath[-4:].lower() != ".txt":
-                    annotationFilePath += TXT_EXT
-                self.labelFile.saveYoloFormat(annotationFilePath, shapes, self.filePath, self.imageData, self.labelHist,
-                                                   self.lineColor.getRgb(), self.fillColor.getRgb())
-            else:
-                self.labelFile.save(annotationFilePath, shapes, self.filePath, self.imageData,
-                                    self.lineColor.getRgb(), self.fillColor.getRgb())
-            print('Image:{0} -> Annotation:{1}'.format(self.filePath, annotationFilePath))
-            return True
-        except LabelFileError as e:
-            self.errorMessage(u'Error saving label data', u'<b>%s</b>' % e)
-            return False
+        currIndex = self.video_cap.get_position()
+        self.shapes[currIndex] = shapes
+        return True
+
 
     def dubSelectedShape(self):
         self.addLabel(self.canvas.copySelectedShape())
@@ -982,6 +1088,68 @@ class MainWindow(QMainWindow, WindowMixin):
         for item, shape in self.itemsToShapes.items():
             item.setCheckState(Qt.Checked if value else Qt.Unchecked)
 
+    def durationChanged(self, duration):
+        self.positionSlider.setRange(0, duration)
+        mtime = QTime(0, 0, 0, 0)
+        mtime = mtime.addMSecs(duration)
+        self.elbl.setText(f"{mtime.toString()}|{self.video_cap.length(): >{8}}")
+
+    def sliderPositionChanged(self):
+        self.lbl.clear()
+        mtime = QTime(0, 0, 0, 0)
+        self.time = mtime.addMSecs(self.video_cap.get_time())
+        self.lbl.setText(f"{self.time.toString()}|{self.video_cap.get_position(): >{8}}")
+
+    def loadFrame(self, position=0):
+        self.resetState()
+        self.canvas.setEnabled(False)
+
+        # Tzutalin 20160906 : Add file list and dock to move faster
+        # Highlight the file item
+        if self.fileListWidget.count() > 0:
+            index = self.mImgList.index(position - 1)
+            fileWidgetItem = self.fileListWidget.item(index)
+            fileWidgetItem.setSelected(True)
+
+            # Load image:
+            # read data first and store for saving into label file.
+            self.imageData = self.video_cap.get_frame(position)
+            self.labelFile = None
+            self.canvas.verified = False
+
+            image = QImage.fromData(self.imageData)
+            if image.isNull():
+                return False
+            self.image = image
+            self.filePath = "something_here"
+            self.canvas.loadPixmap(QPixmap.fromImage(image))
+            if self.shapes:
+                self.loadLabels(self.shapes[position])
+            self.setClean()
+            self.canvas.setEnabled(True)
+            self.adjustScale(initial=True)
+            self.paintCanvas()
+            self.addRecentFile(self.filePath)
+            self.toggleActions(True)
+
+            # Label xml file and show bound box according to its filename
+            # if self.usingPascalVocFormat is True:
+
+            self.setWindowTitle(__appname__ + ' ')
+            #FIXME проверить разные варианты смены кадров
+            self.positionSlider.setSliderPosition(position)
+            self.sliderPositionChanged()
+
+
+            # Default : select last item if there is at least one item
+            if self.labelList.count():
+                self.labelList.setCurrentItem(self.labelList.item(self.labelList.count() - 1))
+                self.labelList.item(self.labelList.count() - 1).setSelected(True)
+
+            self.canvas.setFocus(True)
+            return True
+        return False
+
     def loadFile(self, filePath=None):
         """Load the specified file, or the last opened file if None."""
         self.resetState()
@@ -996,9 +1164,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # Tzutalin 20160906 : Add file list and dock to move faster
         # Highlight the file item
         if unicodeFilePath and self.fileListWidget.count() > 0:
-            index = self.mImgList.index(unicodeFilePath)
-            fileWidgetItem = self.fileListWidget.item(index)
-            fileWidgetItem.setSelected(True)
+            self.fileListWidget.clear()
 
         if unicodeFilePath and os.path.exists(unicodeFilePath):
             if LabelFile.isLabelFile(unicodeFilePath):
@@ -1018,7 +1184,15 @@ class MainWindow(QMainWindow, WindowMixin):
             else:
                 # Load image:
                 # read data first and store for saving into label file.
-                self.imageData = read(unicodeFilePath, None)
+
+                self.video_cap = VideoCapture(unicodeFilePath)
+                self.imageData = self.video_cap.get_frame(pos=0)
+                self.mImgList = [i for i in range(self.video_cap.length())]
+                self.durationChanged(self.video_cap.duration)
+                self.positionSlider.setRange(0, self.video_cap.length())
+                for imgPath in self.mImgList:
+                    item = QListWidgetItem(str(imgPath))
+                    self.fileListWidget.addItem(item)
                 self.labelFile = None
                 self.canvas.verified = False
 
@@ -1158,6 +1332,9 @@ class MainWindow(QMainWindow, WindowMixin):
         images.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))
         return images
 
+    def videoLength(self):
+        return self.video_cap.length()
+
     def changeSavedirDialog(self, _value=False):
         if self.defaultSaveDir is not None:
             path = ustr(self.defaultSaveDir)
@@ -1190,6 +1367,13 @@ class MainWindow(QMainWindow, WindowMixin):
                 if isinstance(filename, (tuple, list)):
                     filename = filename[0]
             self.loadPascalXMLByFilename(filename)
+        if self.usingYoloFormat:
+            filters = "Open Annotation TXT file (%s)" % ' '.join(['*.txt', '*.log'])
+            filename = ustr(QFileDialog.getOpenFileName(self,'%s - Choose a TXT file' % __appname__, path, filters))
+            if filename:
+                if isinstance(filename, (tuple, list)):
+                    filename = filename[0]
+            self.loadVideoCacheByFilename(filename)
 
     def openDirDialog(self, _value=False, dirpath=None):
         if not self.mayContinue():
@@ -1214,7 +1398,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.dirname = dirpath
         self.filePath = None
         self.fileListWidget.clear()
-        self.mImgList = self.scanAllImages(dirpath)
+        self.mImgList = self.video_cap.length()
         self.openNextImg()
         for imgPath in self.mImgList:
             item = QListWidgetItem(imgPath)
@@ -1254,15 +1438,13 @@ class MainWindow(QMainWindow, WindowMixin):
         if len(self.mImgList) <= 0:
             return
 
-        if self.filePath is None:
-            return
+        currIndex = self.video_cap.get_position()
+        if currIndex - 1 < len(self.mImgList):
+            currIndex = currIndex - 1
+            self.fileListWidget.scrollToItem(self.fileListWidget.item(currIndex), hint=QAbstractItemView.EnsureVisible)
 
-        currIndex = self.mImgList.index(self.filePath)
-        if currIndex - 1 >= 0:
-            filename = self.mImgList[currIndex - 1]
-            self.fileListWidget.scrollToItem(self.fileListWidget.item(currIndex - 1), hint=QAbstractItemView.EnsureVisible)
-            if filename:
-                self.loadFile(filename)
+        if currIndex:
+            self.loadFrame(currIndex - 1)
 
     def openNextImg(self, _value=False):
         # Proceding prev image without dialog if having any label
@@ -1280,23 +1462,20 @@ class MainWindow(QMainWindow, WindowMixin):
         if len(self.mImgList) <= 0:
             return
 
-        filename = None
-        if self.filePath is None:
-            filename = self.mImgList[0]
-        else:
-            currIndex = self.mImgList.index(self.filePath)
-            if currIndex + 1 < len(self.mImgList):
-                filename = self.mImgList[currIndex + 1]
-                self.fileListWidget.scrollToItem(self.fileListWidget.item(currIndex), hint=QAbstractItemView.EnsureVisible)
+        currIndex = self.video_cap.get_position()
+        if currIndex + 1 < len(self.mImgList):
+            currIndex = currIndex
+            self.fileListWidget.scrollToItem(self.fileListWidget.item(currIndex), hint=QAbstractItemView.EnsureVisible)
 
-        if filename:
-            self.loadFile(filename)
+        if currIndex:
+            self.loadFrame(currIndex)
 
     def openFile(self, _value=False):
         if not self.mayContinue():
             return
         path = os.path.dirname(ustr(self.filePath)) if self.filePath else '.'
         formats = ['*.%s' % fmt.data().decode("ascii").lower() for fmt in QImageReader.supportedImageFormats()]
+        formats.extend(['*.mp4', '*.avi'])
         filters = "Image & Label files (%s)" % ' '.join(formats + ['*%s' % LabelFile.suffix])
         filename = QFileDialog.getOpenFileName(self, '%s - Choose Image or Label file' % __appname__, path, filters)
         if filename:
@@ -1453,6 +1632,18 @@ class MainWindow(QMainWindow, WindowMixin):
         shapes = tYoloParseReader.getShapes()
         print (shapes)
         self.loadLabels(shapes)
+        self.canvas.verified = tYoloParseReader.verified
+
+    def loadVideoCacheByFilename(self, path):
+        if self.filePath is None:
+            return
+        if os.path.isfile(path) is False:
+            return
+
+        self.set_format(FORMAT_YOLO)
+        tYoloParseReader = YoloCacheReader(path, classListPath=defaultPrefdefClassFile())
+        self.shapes = tYoloParseReader
+        self.loadLabels(tYoloParseReader[0])
         self.canvas.verified = tYoloParseReader.verified
 
     def togglePaintLabelsOption(self):
