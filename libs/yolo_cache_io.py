@@ -84,7 +84,7 @@ class YOLOWriter:
 
 class YoloCacheReader:
 
-    def __init__(self, filepath, classListPath=None):
+    def __init__(self, filepath=None, classListPath=None):
         # shapes type:
         # [labbel, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], color, color, difficult]
         self.shapes = []
@@ -92,11 +92,12 @@ class YoloCacheReader:
         self.filepath = filepath
         self.classListPath = os.path.abspath(classListPath)
 
-        dir_path = os.path.dirname(os.path.realpath(self.filepath))
-        extClassListPath = os.path.join(dir_path, "classes.txt")
+        if filepath:
+            dir_path = os.path.dirname(os.path.realpath(self.filepath))
+            extClassListPath = os.path.join(dir_path, "classes.txt")
 
-        if os.path.exists(extClassListPath):
-            self.classListPath = extClassListPath
+            if os.path.exists(extClassListPath):
+                self.classListPath = extClassListPath
 
         with open (self.classListPath, 'r') as classesFile:
             self.classes = [cl.strip('\n') for cl in classesFile.readlines() if cl.strip('\n')]
@@ -107,10 +108,9 @@ class YoloCacheReader:
 
 
         self.verified = False
-        # try:
-        self.parseYoloFormat()
-        # except:
-            # pass
+        if filepath:
+            self.parseYoloFormat()
+
 
     def getShapes(self):
         return self.detections
@@ -148,6 +148,25 @@ class YoloCacheReader:
             detections.setdefault(detection.pos, []).append(detection)
         self.detections = detections
 
+    def saveYoloFormat(self, filepath):
+        if self.detections:
+            frames = sorted([frame for frame in self.detections.keys()])
+            try:
+                with open(filepath, 'w') as out:
+                    out.write("# start\n")
+                    for frame in frames:
+                        detections = self.detections.get(frame, [])
+                        for detection in detections:
+                            out.write(f'{detection.pos} {detection.x} {detection.y} {detection.w} {detection.h} {detection.obj_class} 0\n')
+                    out.write("# end")
+            except Exception as err:
+                print(f'{type(err).__name__, str(err)}')
+
+
+
+    def save(self, filepath):
+        self.saveYoloFormat(filepath)
+
     def __getitem__(self, item):
         detections = self.detections.get(item)
         # FIXME фигня с координатами, перепутаны
@@ -164,4 +183,10 @@ class YoloCacheReader:
                 detection = self.getDetection(pos, label, points, score)
                 detections.append(detection)
             self.detections[pos] = detections
+        else:
+            label = value['label']
+            points = value['points']
+            score = value['difficult']
+            detection = self.getDetection(pos, label, points, score)
+            self.detections[pos] = [detection]
 

@@ -130,6 +130,9 @@ class MainWindow(QMainWindow, WindowMixin):
         self.itemsToShapes = {}
         self.shapesToItems = {}
         self.prevLabelText = ''
+        self.propagateStartFrame = None
+        self.propagateLabelsFlag = False
+        self.propagateLabels = []
 
         listLayout = QVBoxLayout()
         listLayout.setContentsMargins(0, 0, 0, 0)
@@ -204,7 +207,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.canvas.selectionChanged.connect(self.shapeSelectionChanged)
         self.canvas.drawingPolygon.connect(self.toggleDrawingSensitive)
 
-        self.setCentralWidget(scroll)
+        # self.setCentralWidget(scroll)
         self.addDockWidget(Qt.RightDockWidgetArea, self.dock)
         self.addDockWidget(Qt.RightDockWidgetArea, self.filedock)
         self.filedock.setFeatures(QDockWidget.DockWidgetFloatable)
@@ -228,7 +231,8 @@ class MainWindow(QMainWindow, WindowMixin):
         # Timeline
         self.timeline = QDockWidget()
         self.timeline.setWidget(container)
-        self.addDockWidget(Qt.BottomDockWidgetArea, self.timeline)
+        # self.addDockWidget(Qt.BottomDockWidgetArea, self.timeline)
+        self.timeline.setFixedHeight(60)
 
         self.lbl = QLineEdit(f'00:00:00|{0: >{8}}')
         self.lbl.setReadOnly(True)
@@ -244,11 +248,44 @@ class MainWindow(QMainWindow, WindowMixin):
         self.elbl.setFixedWidth(150)
         self.elbl.setStyleSheet(self.stylesheet())
 
+
+        # Annotation toolbox
+        AnnoContainer = QWidget()
+        annoToolLayout = QHBoxLayout()
+        annoToolLayout.setContentsMargins(0, 0, 0, 0)
+
+        self.annoStartButton = QPushButton()
+        self.annoStartButton.setText('Start propagate')
+        self.annoStartButton.setStyleSheet("Text-align:center")
+        self.annoStartButton.pressed.connect(self.setStartPropagateFrame)
+
+        self.annoEndButton = QPushButton()
+        self.annoEndButton.setDisabled(True)
+        self.annoEndButton.setText('Stop propagate')
+        self.annoEndButton.setStyleSheet("Text-align:center")
+        self.annoEndButton.pressed.connect(self.setStopPropagateFrame)
+
+        annoToolLayout.addWidget(self.annoStartButton)
+        annoToolLayout.addWidget(self.annoEndButton)
+        AnnoContainer.setLayout(annoToolLayout)
+
+        # Сompilation
         controlLayout.addWidget(self.lbl)
         controlLayout.addWidget(self.positionSlider)
         controlLayout.addWidget(self.elbl)
         self.positionSlider.sliderMoved.connect(self.loadFrame)
         self.positionSlider.sliderMoved.connect(self.sliderPositionChanged)
+
+        centralContainer = QWidget()
+        centralLayout = QVBoxLayout()
+        scroll.setSizePolicy(QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding))
+        centralLayout.setContentsMargins(0, 0, 0, 0)
+
+        centralLayout.addWidget(scroll)
+        centralLayout.addWidget(AnnoContainer)
+        centralLayout.addWidget(self.timeline)
+        centralContainer.setLayout(centralLayout)
+        self.setCentralWidget(centralContainer)
 
 
         # Actions
@@ -256,7 +293,7 @@ class MainWindow(QMainWindow, WindowMixin):
         quit = action(getStr('quit'), self.close,
                       'Ctrl+Q', 'quit', getStr('quitApp'))
 
-        open = action(getStr('openFile'), self.openFile,
+        openVideo = action(getStr('openFile'), self.openFile,
                       'Ctrl+O', 'open', getStr('openFileDetail'))
 
         opendir = action(getStr('openDir'), self.openDirDialog,
@@ -283,8 +320,8 @@ class MainWindow(QMainWindow, WindowMixin):
         save_format = action('&PascalVOC', self.change_format,
                       'Ctrl+', 'format_voc', getStr('changeSaveFormat'), enabled=True)
 
-        saveAs = action(getStr('saveAs'), self.saveFileAs,
-                        'Ctrl+Shift+S', 'save-as', getStr('saveAsDetail'), enabled=False)
+        saveAnnoAs = action(getStr('saveAnnoAs'), self.saveAnnotation,
+                        'Ctrl+Shift+S', 'save-anno-as', getStr('saveAsDetail'), enabled=True)
 
         close = action(getStr('closeCur'), self.closeFile, 'Ctrl+W', 'close', getStr('closeCurDetail'))
 
@@ -391,7 +428,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.drawSquaresOption.triggered.connect(self.toogleDrawSquare)
 
         # Store actions for further handling.
-        self.actions = struct(save=save, save_format=save_format, saveAs=saveAs, open=open, close=close, resetAll = resetAll,
+        self.actions = struct(save=save, save_format=save_format, saveAs=saveAnnoAs, open=openVideo, close=close, resetAll = resetAll,
                               lineColor=color1, create=create, delete=delete, edit=edit, copy=copy,
                               createMode=createMode, editMode=editMode, advancedMode=advancedMode,
                               shapeLineColor=shapeLineColor, shapeFillColor=shapeFillColor,
@@ -399,7 +436,7 @@ class MainWindow(QMainWindow, WindowMixin):
                               fitWindow=fitWindow, fitWidth=fitWidth,
                               zoomActions=zoomActions,
                               fileMenuActions=(
-                                  open, opendir, save, saveAs, close, resetAll, quit),
+                                  openVideo, opendir, save, saveAnnoAs, close, resetAll, quit),
                               beginner=(), advanced=(),
                               editMenu=(edit, copy, delete, paste, editor,
                                         None, color1, self.drawSquaresOption),
@@ -408,7 +445,7 @@ class MainWindow(QMainWindow, WindowMixin):
                                                delete, shapeLineColor, shapeFillColor),
                               onLoadActive=(
                                   close, create, createMode, editMode),
-                              onShapesPresent=(saveAs, hideAll, showAll))
+                              onShapesPresent=(saveAnnoAs, hideAll, showAll))
 
         self.menus = struct(
             file=self.menu('&File'),
@@ -436,7 +473,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.displayLabelOption.triggered.connect(self.togglePaintLabelsOption)
 
         addActions(self.menus.file,
-                   (open, opendir, changeSavedir, openAnnotation, self.menus.recentFiles, save, save_format, saveAs, close, resetAll, quit))
+                   (openVideo, opendir, changeSavedir, openAnnotation, self.menus.recentFiles, save, save_format, saveAnnoAs, close, resetAll, quit))
         addActions(self.menus.help, (help, showInfo))
         addActions(self.menus.view, (
             self.autoSaving,
@@ -457,11 +494,11 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.tools = self.toolbar('Tools')
         self.actions.beginner = (
-            open, opendir, changeSavedir, openNextImg, openPrevImg, verify, save, save_format, None, create, copy, paste, delete, None,
+            openVideo, openAnnotation, saveAnnoAs, openNextImg, openPrevImg, verify, save, save_format, None, create, copy, paste, delete, None,
             zoomIn, zoom, zoomOut, fitWindow, fitWidth)
 
         self.actions.advanced = (
-            open, opendir, changeSavedir, openNextImg, openPrevImg, save, save_format, None, editor,
+            openVideo, openAnnotation, saveAnnoAs, openNextImg, openPrevImg, save, save_format, None, editor,
             createMode, editMode, None,
             hideAll, showAll)
 
@@ -633,6 +670,29 @@ class MainWindow(QMainWindow, WindowMixin):
             self.dock.setFeatures(self.dock.features() | self.dockFeatures)
         else:
             self.dock.setFeatures(self.dock.features() ^ self.dockFeatures)
+
+    def setStartPropagateFrame(self):
+        self.propagateLabelsFlag = True
+        self.propagateStartFrame = self.video_cap.get_position()
+        self.propagateLabels = self.canvas.shapes.copy()
+        self.annoStartButton.setText('Started propagate')
+        self.annoEndButton.setDisabled(False)
+        # self.setDirty()
+
+    def setStopPropagateFrame(self):
+        # FIXME сохранять лейблы для текущего кадра?
+        if self.propagateLabelsFlag:
+            position = self.video_cap.get_position()
+            if position > self.propagateStartFrame:
+                for frame in range(self.propagateStartFrame + 1, position + 2):
+                    self.shapes[frame] = [self.format_shape(shape) for shape in self.propagateLabels]
+            # Cleaning
+            self.propagateLabelsFlag = False
+            self.propagateStartFrame = None
+            self.propagateLabels = []
+            self.annoStartButton.setText('Start propagate')
+            self.annoEndButton.setDisabled(True)
+            # self.setClean()
 
     def populateModeActions(self):
         if self.beginner():
@@ -878,6 +938,14 @@ class MainWindow(QMainWindow, WindowMixin):
 
         self.canvas.loadShapes(s)
 
+    def format_shape(self, s):
+        return dict(label=s.label,
+                    line_color=s.line_color.getRgb(),
+                    fill_color=s.fill_color.getRgb(),
+                    points=[(p.x(), p.y()) for p in s.points],
+                    # add chris
+                    difficult=s.difficult)
+
     def saveLabels(self, annotationFilePath):
         # annotationFilePath = ustr(annotationFilePath)
         # if self.labelFile is None:
@@ -913,16 +981,10 @@ class MainWindow(QMainWindow, WindowMixin):
         # except LabelFileError as e:
         #     self.errorMessage(u'Error saving label data', u'<b>%s</b>' % e)
         #     return False
-
+        if self.shapes is None:
+            self.shapes = YoloCacheReader(classListPath=config.PREDEF_YOLO_CLASSES)
         annotationFilePath = ustr(annotationFilePath)
-        def format_shape(s):
-            return dict(label=s.label,
-                        line_color=s.line_color.getRgb(),
-                        fill_color=s.fill_color.getRgb(),
-                        points=[(p.x(), p.y()) for p in s.points],
-                       # add chris
-                        difficult = s.difficult)
-        shapes = [format_shape(shape) for shape in self.canvas.shapes]
+        shapes = [self.format_shape(shape) for shape in self.canvas.shapes]
         currIndex = self.video_cap.get_position()
         self.shapes[currIndex + 1] = shapes
         return True
@@ -941,7 +1003,6 @@ class MainWindow(QMainWindow, WindowMixin):
         # fix copy and delete
         self.shapeSelectionChanged(True)
         self.setDirty()
-
 
     def openInEditor(self):
         subprocess.Popen([config.IMAGE_EDITOR, self.filePath])
@@ -1124,8 +1185,12 @@ class MainWindow(QMainWindow, WindowMixin):
             self.image = image
             self.filePath = "something_here"
             self.canvas.loadPixmap(QPixmap.fromImage(image))
-            if self.shapes:
-                self.loadLabels(self.shapes[frame_num])
+
+            if self.propagateLabelsFlag:
+                self.canvas.loadShapes(self.propagateLabels)
+            else:
+                if self.shapes:
+                    self.loadLabels(self.shapes[frame_num])
             self.setClean()
             self.canvas.setEnabled(True)
             self.adjustScale(initial=True)
@@ -1153,6 +1218,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
     def loadFile(self, filePath=None):
         """Load the specified file, or the last opened file if None."""
+        self.shapes = None
         self.resetState()
         self.canvas.setEnabled(False)
         if filePath is None:
@@ -1427,7 +1493,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # Proceding prev image without dialog if having any label
         if self.autoSaving.isChecked():
             if self.defaultSaveDir is not None:
-                if self.dirty is True:
+                if self.dirty is True or self.propagateLabelsFlag is True:
                     self.saveFile()
             else:
                 self.changeSavedirDialog()
@@ -1449,7 +1515,7 @@ class MainWindow(QMainWindow, WindowMixin):
         # Proceding prev image without dialog if having any label
         if self.autoSaving.isChecked():
             if self.defaultSaveDir is not None:
-                if self.dirty is True:
+                if self.dirty is True or self.propagateLabelsFlag is True:
                     self.saveFile()
             else:
                 self.changeSavedirDialog()
@@ -1497,13 +1563,19 @@ class MainWindow(QMainWindow, WindowMixin):
             self._saveFile(savedPath if self.labelFile
                            else self.saveFileDialog(removeExt=False))
 
+    def saveAnnotation(self):
+        file = self.saveFileDialog(removeExt=False)
+        if self.shapes:
+            self.shapes.save(filepath=file)
+
     def saveFileAs(self, _value=False):
         assert not self.image.isNull(), "cannot save empty image"
         self._saveFile(self.saveFileDialog())
 
     def saveFileDialog(self, removeExt=True):
         caption = '%s - Choose File' % __appname__
-        filters = 'File (*%s)' % LabelFile.suffix
+        #FIXME расширение брать из тех, что умеет YoloCacheReader
+        filters = 'File (*%s, *.log)' % LabelFile.suffix
         openDialogPath = self.currentPath()
         dlg = QFileDialog(self, caption, openDialogPath, filters)
         dlg.setDefaultSuffix(LabelFile.suffix[1:])
