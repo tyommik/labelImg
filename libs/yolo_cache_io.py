@@ -130,7 +130,7 @@ class YoloCacheReader:
         ymin = min(ys)
         ymax = max(ys)
 
-        detection = Detection(pos, xmin, ymax, xmax, ymin, obj_class, 0.0)
+        detection = Detection(pos, xmin, ymin, xmax, ymax, obj_class, 0.0)
         return detection
 
     def parseYoloFormat(self):
@@ -138,11 +138,12 @@ class YoloCacheReader:
         def read_file():
             with open(self.filepath) as inf:
                 for line in iter(inf):
-                    line = line.strip()
-                    pos, x, y, w, h, obj_class, precision = line.split(' ')
-                    detection = Detection(int(pos), int(x), int(y), int(w), int(h), int(obj_class),
-                                          float(precision))
-                    yield detection
+                    if not line.startswith(('#')):
+                        line = line.strip()
+                        pos, x, y, w, h, obj_class, precision = line.split(' ')
+                        detection = Detection(int(pos), int(x), int(y), int(w), int(h), int(obj_class),
+                                              float(precision))
+                        yield detection
         for detection in read_file():
             detections.setdefault(detection.pos, []).append(detection)
         self.detections = detections
@@ -150,7 +151,7 @@ class YoloCacheReader:
     def __getitem__(self, item):
         detections = self.detections.get(item)
         # FIXME фигня с координатами, перепутаны
-        shapes = [self.addShape(self.classes[int(det.obj_class)], det.y, det.x, det.h, det.w, 0.5) for det in detections] if detections else []
+        shapes = [self.addShape(self.classes[int(det.obj_class)], det.x, det.y, det.w, det.h, 0.5) for det in detections] if detections else []
         return shapes
 
     def __setitem__(self, pos, value):

@@ -7,7 +7,7 @@ import platform
 import re
 import sys
 import subprocess
-import cv2
+# import cv2
 from functools import partial
 from collections import defaultdict
 
@@ -785,11 +785,10 @@ class MainWindow(QMainWindow, WindowMixin):
 
     # Tzutalin 20160906 : Add file list and dock to move faster
     def fileitemDoubleClicked(self, item=None):
-        currIndex = self.mImgList.index(int(item.text()))
+        currIndex = int(item.text())
         if currIndex < len(self.mImgList):
-            filename = self.mImgList[currIndex]
-            if filename:
-                self.loadFrame(filename)
+            if currIndex in self.mImgList:
+                self.loadFrame(currIndex - 1)
 
     # Add chris
     def btnstate(self, item= None):
@@ -925,7 +924,7 @@ class MainWindow(QMainWindow, WindowMixin):
                         difficult = s.difficult)
         shapes = [format_shape(shape) for shape in self.canvas.shapes]
         currIndex = self.video_cap.get_position()
-        self.shapes[currIndex] = shapes
+        self.shapes[currIndex + 1] = shapes
         return True
 
 
@@ -1098,17 +1097,19 @@ class MainWindow(QMainWindow, WindowMixin):
         self.lbl.clear()
         mtime = QTime(0, 0, 0, 0)
         self.time = mtime.addMSecs(self.video_cap.get_time())
-        self.lbl.setText(f"{self.time.toString()}|{self.video_cap.get_position(): >{8}}")
+        self.lbl.setText(f"{self.time.toString()}|{self.video_cap.get_position() + 1: >{8}}")
 
     def loadFrame(self, position=0):
+
+        frame_num = position + 1
         self.resetState()
         self.canvas.setEnabled(False)
 
         # Tzutalin 20160906 : Add file list and dock to move faster
         # Highlight the file item
         if self.fileListWidget.count() > 0:
-            index = self.mImgList.index(position - 1)
-            fileWidgetItem = self.fileListWidget.item(index)
+
+            fileWidgetItem = self.fileListWidget.item(position)
             fileWidgetItem.setSelected(True)
 
             # Load image:
@@ -1124,7 +1125,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.filePath = "something_here"
             self.canvas.loadPixmap(QPixmap.fromImage(image))
             if self.shapes:
-                self.loadLabels(self.shapes[position])
+                self.loadLabels(self.shapes[frame_num])
             self.setClean()
             self.canvas.setEnabled(True)
             self.adjustScale(initial=True)
@@ -1187,9 +1188,9 @@ class MainWindow(QMainWindow, WindowMixin):
 
                 self.video_cap = VideoCapture(unicodeFilePath)
                 self.imageData = self.video_cap.get_frame(pos=0)
-                self.mImgList = [i for i in range(self.video_cap.length())]
+                self.mImgList = [i for i in range(1, self.video_cap.length() + 1)]
                 self.durationChanged(self.video_cap.duration)
-                self.positionSlider.setRange(0, self.video_cap.length())
+                self.positionSlider.setRange(0, self.video_cap.length() - 1)
                 for imgPath in self.mImgList:
                     item = QListWidgetItem(str(imgPath))
                     self.fileListWidget.addItem(item)
@@ -1442,9 +1443,7 @@ class MainWindow(QMainWindow, WindowMixin):
         if currIndex - 1 < len(self.mImgList):
             currIndex = currIndex - 1
             self.fileListWidget.scrollToItem(self.fileListWidget.item(currIndex), hint=QAbstractItemView.EnsureVisible)
-
-        if currIndex:
-            self.loadFrame(currIndex - 1)
+        self.loadFrame(currIndex)
 
     def openNextImg(self, _value=False):
         # Proceding prev image without dialog if having any label
@@ -1464,7 +1463,7 @@ class MainWindow(QMainWindow, WindowMixin):
 
         currIndex = self.video_cap.get_position()
         if currIndex + 1 < len(self.mImgList):
-            currIndex = currIndex
+            currIndex = currIndex + 1
             self.fileListWidget.scrollToItem(self.fileListWidget.item(currIndex), hint=QAbstractItemView.EnsureVisible)
 
         if currIndex:
